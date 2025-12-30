@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Unicompete - التحدي المباشر عبر الإنترنت</title>
+
+<script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+
+<style>
+:root { --primary: #6366f1; --secondary: #f472b6; --bg: #f8fafc; --radius: 20px; }
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+body { background: var(--bg); padding: 20px; direction: rtl; }
+.container { max-width: 600px; margin: 0 auto; background: white; border-radius: var(--radius); padding: 30px; box-shadow: 0 15px 30px rgba(0,0,0,0.1); }
+
+.input-group { margin-bottom: 15px; text-align: right; }
+label { display: block; margin-bottom: 5px; font-weight: bold; color: #475569; }
+input { width: 100%; padding: 12px; border-radius: 12px; border: 2px solid #e2e8f0; outline: none; }
+
+.battle-zone { display: none; }
+.score-board { display: flex; justify-content: space-between; align-items: center; background: #f1f5f9; padding: 15px; border-radius: 15px; margin-bottom: 20px; }
+.player-info { text-align: center; flex: 1; }
+.player-info img { width: 60px; height: 60px; border-radius: 50%; border: 3px solid white; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+.vs-tag { font-weight: 900; color: #cbd5e1; margin: 0 15px; }
+
+.question-card { background: #fff; border: 2px solid #f1f5f9; padding: 20px; border-radius: 20px; text-align: right; }
+.option-btn { width: 100%; padding: 14px; margin: 8px 0; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; cursor: pointer; text-align: right; font-weight: 600; transition: 0.2s; }
+.option-btn:hover { background: #f5f3ff; border-color: var(--primary); }
+
+.btn-ready { width: 100%; background: var(--primary); color: white; padding: 15px; border: none; border-radius: 12px; font-size: 1.1rem; font-weight: bold; cursor: pointer; }
+.status-msg { color: var(--secondary); font-size: 0.9rem; margin-top: 10px; text-align: center; }
+</style>
+</head>
+<body>
+
+<div class="container">
+<div id="auth-view">
+<h2 style="text-align:center; margin-bottom:20px;">🎮 غرفة التحدي المباشر</h2>
+<div class="input-group">
+<label>اسمك أو إيميلك:</label>
+<input type="text" id="pName" placeholder="مثال: ياسمين">
+</div>
+<div class="input-group">
+<label>كود الغرفة المشترك:</label>
+<input type="text" id="rCode" placeholder="أدخل أي 4 أرقام">
+</div>
+<button class="btn-ready" onclick="joinRoom()">دخول التحدي</button>
+<p id="wait-msg" class="status-msg"></p>
+</div>
+
+<div id="battle-view" class="battle-zone">
+<div class="score-board">
+<div class="player-info">
+<img id="myImg" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Me">
+<div id="myName" style="font-weight:bold">أنت</div>
+<div id="myScore" style="color:var(--primary); font-size:1.5rem; font-weight:900">0</div>
+</div>
+<div class="vs-tag">ضد</div>
+<div class="player-info">
+<img id="oppImg" src="https://api.dicebear.com/7.x/avataaars/svg?seed=Opp">
+<div id="oppName" style="font-weight:bold">الخصم</div>
+<div id="oppScore" style="color:var(--secondary); font-size:1.5rem; font-weight:900">0</div>
+</div>
+</div>
+
+<div class="question-card">
+<h3 id="qText">انتظر الطالب الآخر لبدء الأسئلة...</h3>
+<div id="optionsGrid" style="margin-top:15px"></div>
+</div>
+</div>
+</div>
+
+<script>
+// --- إعدادات Firebase (ضع إعداداتك هنا ليعمل حقيقياً) ---
+https://unicompete-learning-platform-default-rtdb.firebaseio.com/const firebaseConfig = {
+databaseURL: "https://your-project-id.firebaseio.com" // رابط قاعدة بياناتك
+};
+
+// ملاحظة: هذا مثال هيكلي، لتشغيله فعلياً ستحتاج لإنشاء مشروع في Firebase Console
+if (firebaseConfig.databaseURL.includes("your-project")) {
+console.warn("Firebase لم يتم ربطه بمشروع حقيقي بعد.");
+} else {
+firebase.initializeApp(firebaseConfig);
+}
+
+const db = firebase.database();
+let myId, roomRef, myName, roomCode;
+let score = 0;
+const questions = [
+{ q: "ما هو الجسيم الموجب في نواة الذرة؟", opts: ["البروتون", "الإلكترون", "النيوترون"], a: 0 },
+{ q: "صيغة الألكانات المشبعة هي:", opts: ["CnH2n", "CnH2n+2", "CnH2n-2"], a: 1 }
+];
+
+function joinRoom() {
+myName = document.getElementById('pName').value;
+roomCode = document.getElementById('rCode').value;
+
+if(!myName || !roomCode) return alert("أكمل البيانات");
+
+myId = Math.random().toString(36).substring(7);
+roomRef = db.ref('rooms/' + roomCode);
+
+// تسجيل دخول الطالب للغرفة في قاعدة البيانات
+roomRef.child('players/' + myId).set({
+name: myName,
+score: 0,
+avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${myName}`
+});
+
+document.getElementById('auth-view').style.display = 'none';
+document.getElementById('battle-view').style.display = 'block';
+document.getElementById('myImg').src = `https://api.dicebear.com/7.x/avataaars/svg?seed=${myName}`;
+document.getElementById('myName').innerText = myName;
+
+listenForOpponent();
+}
+
+function listenForOpponent() {
+// الاستماع لأي تغيير في الغرفة (دخول خصم أو زيادة نقاطه)
+roomRef.child('players').on('value', (snapshot) => {
+const players = snapshot.val();
+for (let id in players) {
+if (id !== myId) {
+// بيانات الخصم
+document.getElementById('oppName').innerText = players[id].name;
+document.getElementById('oppImg').src = players[id].avatar;
+document.getElementById('oppScore').innerText = players[id].score;
+
+// إذا دخل الخصم، ابدأ الأسئلة
+if(document.getElementById('qText').innerText.includes("انتظر")) {
+loadQuestion(0);
+}
+}
+}
+});
+}
+
+function loadQuestion(idx) {
+if(idx >= questions.length) {
+document.getElementById('qText').innerText = "انتهى التحدي! بانتظار الخصم..";
+document.getElementById('optionsGrid').innerHTML = "";
+return;
+}
+
+const q = questions[idx];
+document.getElementById('qText').innerText = q.q;
+const grid = document.getElementById('optionsGrid');
+grid.innerHTML = "";
+
+q.opts.forEach((opt, i) => {
+const btn = document.createElement('button');
+btn.className = 'option-btn';
+btn.innerText = opt;
+btn.onclick = () => {
+if(i === q.a) {
+score += 10;
+document.getElementById('myScore').innerText = score;
+// تحديث النقاط في Firebase ليراها الخصم فوراً
+roomRef.child('players/' + myId).update({ score: score });
+}
+loadQuestion(idx + 1);
+};
+grid.appendChild(btn);
+});
+}
+</script>
+</body>
+</html>
